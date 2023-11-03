@@ -93,6 +93,7 @@ func writeCSVFile(filename string, create, find map[int][]time.Duration, levels 
 			if err := w.Write([]string{strconv.Itoa(keys), lvls, bitsPerKey, c, f}); err != nil {
 				return err
 			}
+			fmt.Printf("CSV: %v\n", []string{strconv.Itoa(keys), lvls, bitsPerKey, c, f});
 		}
 	}
 	return w.Error()
@@ -153,6 +154,7 @@ func runParallel2(numKeys, numPartitions int, gamma float64, count int) ([]time.
 
 func findAll(bb interface{ Find(uint64) uint64 }, keys []uint64, count int) []time.Duration {
 	elapsed := make([]time.Duration, count)
+	return elapsed
 	for i := 0; i < count; i++ {
 		start := time.Now()
 		for _, key := range keys {
