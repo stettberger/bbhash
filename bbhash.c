@@ -57,10 +57,12 @@ static struct bbhash_level *bbhash_level_alloc(uint64_t bits) {
     // This also zeros the bits.
     if (bits < ((1UL<<20) * 8)) {
     alloc_small:
+        size_t alloc_size = lvl->elems * sizeof(struct bbhash_colvec);
         int rc = posix_memalign((void**)&lvl->col_vec, 
                                 sizeof(struct bbhash_colvec),
-                                lvl->elems * sizeof(struct bbhash_colvec));
+                                alloc_size);
         if (rc != 0) die("posix_memalign");
+        memset(lvl->col_vec, 0, alloc_size);
         lvl->mmap_size = 0;
     } else {
         size_t size = lvl->elems*sizeof(struct bbhash_colvec);
@@ -117,13 +119,24 @@ static inline void bbhash_colvec_prefetch(struct bbhash_level * lvl, uint64_t bi
 static inline _Bool bbhash_colvec_inc(struct bbhash_level *lvl, uint64_t bit) {
     destruct_bit_position(bit);
 
-    if (!(lvl->col_vec[bvec].v[entry] & mask)) {
-        lvl->col_vec[bvec].v[entry] |= mask;
-        return false;
+    uint64_t col = lvl->col_vec[bvec].v[entry] & mask;
+
+    if (0) {
+        if (!col) {
+            lvl->col_vec[bvec].v[entry] |= mask;
+            return false;
+        } else {
+            lvl->col_vec[bvec].c[entry] |= mask;
+            return true;
+        }
     } else {
-        lvl->col_vec[bvec].c[entry] |= mask;
-        return true;
+        // This variant is actually slower, although being branchless
+        lvl->col_vec[bvec].v[entry] |= mask;
+        lvl->col_vec[bvec].c[entry] |= col;
+        return col != 0;
     }
+
+    
 }
 
 static inline _Bool bbhash_get(struct bbhash_level *lvl, uint64_t bit) {
@@ -151,6 +164,8 @@ static struct bbhash _BBHashCompute(double gamma, uintptr_t _keys,
     uint64_t *hashes = malloc(sizeof(uint64_t)*STRIDE);
 
     uint64_t depth_sum = 0;
+
+    uint64_t rank = 1;
 
     for (int level = 0; ; level ++) {
         // Create a new vector to our result bbhash
@@ -204,6 +219,9 @@ static struct bbhash _BBHashCompute(double gamma, uintptr_t _keys,
                 //collisions += __builtin_popcountll(lvl->col_vec[i].c[ii]);
             }
         }
+        
+        lvl->rank = rank;
+        rank += bits;
 
         // This loop iterates over all keys that are scheduled for
         // rechecking as they did not provoke a collision during their
@@ -256,6 +274,11 @@ void BBHashFree(struct bbhash hh) {
     }
 }
 
+uint64_t * BBHashGetLevel(struct bbhash hh, int i, uint64_t *bits, uint64_t *rank) {
+    *bits = hh.levels[i]->bits;
+    *rank = hh.levels[i]->rank;
+    return hh.levels[i]->v;
+}
 
 ////////////////////////////////////////////////////////////////
 // Measurement code

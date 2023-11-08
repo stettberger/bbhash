@@ -1,8 +1,16 @@
 // Package bbhash implements the BBHash algorithm for minimal perfect hash functions.
 package bbhash
 
+
+//#include "bbhash.h"
+//#cgo CFLAGS: -O3
+import "C"
+
 import (
+	"time"
 	"fmt"
+	"unsafe"
+	"reflect"
 )
 
 const (
@@ -83,9 +91,35 @@ func (bb *BBHash) compute(gamma float64, keys []uint64) error {
 		return fmt.Errorf("bbhash: compute: no keys")
 	}
 
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&keys))
+	for i := 0; i < 0; i++ {
+		bbhash := C.BBHashCompute(C.double(gamma), C.ulong(header.Data), C.ulong(sz));
+		C.BBHashFree(bbhash);
+	}
+	bbhash := C.BBHashCompute(C.double(gamma), C.ulong(header.Data), C.ulong(sz));
+	// Extract bit vectors from levels and compute ranks
+	fmt.Printf("levels: %v\n", bbhash.level_count);
+	bb.ranks = make([]uint64, int(bbhash.level_count))
+	for i := 0; i < int(bbhash.level_count); i++ {
+		_bits := C.ulong(0)
+		_rank := C.ulong(0)
+		lvl := C.BBHashGetLevel(bbhash, C.int(i), &_bits, &_rank)
+		bits := uint64(_bits)
+		bb.ranks[i] = uint64(_rank);
+		bitVector := newBitVector(bits / 64);
+		copy(bitVector.v, (*(*[1000000000]uint64)(unsafe.Pointer(lvl)))[:(bits/8):(bits/8)])// big number dose not affect ram.
+		bb.bits = append(bb.bits, bitVector)
+		// fmt.Printf("levels: %v %v bits: %v, rank: %v\n", lvl, bits, bitVector.onesCount(), uint64(_rank));
+	}
+	C.BBHashFree(bbhash);
+	return nil;
+	
+
 	redo := make([]uint64, 0, sz/2) // heuristic: only 1/2 of the keys will collide
 	// bit vectors for current level : A and C in the paper
 	lvlVector := newBCVector(words(sz, gamma))
+
+	start := time.Now()
 
 	// loop exits when there are no more keys to re-hash (see break statement below)
 	for lvl := 0; true; lvl++ {
@@ -125,6 +159,10 @@ func (bb *BBHash) compute(gamma float64, keys []uint64) error {
 			return fmt.Errorf("can't find minimal perfect hash after %d tries", lvl)
 		}
 	}
+
+	elapsed := time.Since(start)
+	fmt.Printf("Go version: %v elapsed\n", elapsed);
+
 	bb.computeLevelRanks()
 	return nil
 }

@@ -21,10 +21,12 @@ struct bbhash_level {
         struct bbhash_colvec *col_vec;
         uint64_t *v;
     };
+    uint64_t mmap_size;
 
     uint64_t  elems;
     uint64_t  bits;
-    uint64_t  mmap_size;
+    uint64_t  rank;
+
 };
 
 struct bbhash {
@@ -33,6 +35,8 @@ struct bbhash {
 };
 
 struct bbhash BBHashCompute(double gamma, uintptr_t _keys, unsigned long key_count);
+
+uint64_t * BBHashGetLevel(struct bbhash, int lvl, uint64_t *bits, uint64_t *rank);
 
 void BBHashFree(struct bbhash);
 
