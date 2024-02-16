@@ -7,6 +7,7 @@ package bbhash
 import "C"
 
 import (
+	"os"
 	"time"
 	"fmt"
 	"unsafe"
@@ -90,13 +91,25 @@ func (bb *BBHash) compute(gamma float64, keys []uint64) error {
 	if sz == 0 {
 		return fmt.Errorf("bbhash: compute: no keys")
 	}
-
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&keys))
-	for i := 0; i < 0; i++ {
-		bbhash := C.BBHashCompute(C.double(gamma), C.ulong(header.Data), C.ulong(sz));
-		C.BBHashFree(bbhash);
+	bbhash := os.Getenv("BBHASH")
+	if bbhash == "" || bbhash == "Go" {
+		return bb.computeGo(gamma, keys)
+	} else if bbhash == "C" {
+		return bb.computeC(gamma, keys)
+	} else {
+		return fmt.Errorf("bbhash: compute: invalid compute method (BBHASH)")
 	}
+}
+
+func (bb *BBHash) computeC(gamma float64, keys []uint64) error {
+	sz := len(keys)
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&keys))
+	// for i := 0; i < 0; i++ {
+	//	bbhash := C.BBHashCompute(C.double(gamma), C.ulong(header.Data), C.ulong(sz));
+	// C.BBHashFree(bbhash);
+	// }
 	bbhash := C.BBHashCompute(C.double(gamma), C.ulong(header.Data), C.ulong(sz));
+
 	// Extract bit vectors from levels and compute ranks
 	fmt.Printf("levels: %v\n", bbhash.level_count);
 	bb.ranks = make([]uint64, int(bbhash.level_count))
@@ -113,8 +126,10 @@ func (bb *BBHash) compute(gamma float64, keys []uint64) error {
 	}
 	C.BBHashFree(bbhash);
 	return nil;
-	
+}
 
+func (bb *BBHash) computeGo(gamma float64, keys []uint64) error {
+	sz := len(keys)
 	redo := make([]uint64, 0, sz/2) // heuristic: only 1/2 of the keys will collide
 	// bit vectors for current level : A and C in the paper
 	lvlVector := newBCVector(words(sz, gamma))

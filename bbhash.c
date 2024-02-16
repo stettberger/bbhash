@@ -74,7 +74,11 @@ static struct bbhash_level *bbhash_level_alloc(uint64_t bits) {
                          MAP_ANON|MAP_PRIVATE|MAP_POPULATE|MAP_HUGETLB,
                          -1, 0);
         if (lvl->col_vec == MAP_FAILED) {
-            perror("mmap(MAP_HUGETLB) failed, not enough huge pages?");
+            static int warning = 0;
+            if (!warning) {
+                perror("WARNING: mmap(MAP_HUGETLB) failed, not enough huge pages?");
+                warning++;
+            }
             goto alloc_small;
         }
     }
@@ -353,30 +357,23 @@ perf_event_id perf_event_add(struct perf_handle *p, int type, int config) {
     if (ioctl(fd, PERF_EVENT_IOC_ID, &id) < 0)
         die("perf/IOC_ID");
     return id;
-    // SOL_ELSE
-    // FIXME: Create event with perf_event_open
-    // FIXME: Get perf_event_id with PERF_EVENT_IOC_ID
-    return -1;
-    // SOL_END
 }
 
 // Resets and starts the perf measurement
 void perf_event_start(struct perf_handle *p) {
-    // SOL_IF
     // Reset and enable the event group
-    ioctl(p->group_fd, PERF_EVENT_IOC_RESET,  PERF_IOC_FLAG_GROUP);
-    ioctl(p->group_fd, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP);
-    // SOL_ELSE
-    // FIXME: PERF_EVENT_IOC_{RESET, ENABLE}
-    // SOL_END
+    if (ioctl(p->group_fd, PERF_EVENT_IOC_RESET,  PERF_IOC_FLAG_GROUP) < 0)
+        die("ioctl/PERF_EVENT_IOC_RESET");
+    if (ioctl(p->group_fd, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) < 0)
+        die("ioctl/PERF_EVENT_IOC_ENABLE");
 }
 
 // Stops the perf measurement and reads out the event
 void perf_event_stop(struct perf_handle *p) {
-    // SOL_IF
     // Stop the tracing for the whole event group
-    ioctl(p->group_fd, PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP);
-
+    int rc = ioctl(p->group_fd, PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP);
+    if (rc < 0)
+        die("ioctl/PERF_EVENT_IOC_DISABLE");
     // Allocate a read_format buffer if not done yet.
     if (p->rf == NULL) {
         p->rf_size = sizeof(uint64_t) + 2 * p->nevents * sizeof(uint64_t);
@@ -384,12 +381,8 @@ void perf_event_stop(struct perf_handle *p) {
     }
 
     // get the event from the kernel. Our buffer should be sized exactly righ
-    if (read(p->group_fd, p->rf, p->rf_size) < 0)
+    if ((rc = read(p->group_fd, p->rf, p->rf_size)) < 0)
         die("read");
-    // SOL_ELSE
-    // FIXME: PERF_EVENT_IOC_DISABLE
-    // FIXME: Read event from the group_fd into an allocated buffer
-    // SOL_END
 }
 
 
@@ -424,8 +417,8 @@ struct bbhash BBHashCompute(double gamma, uintptr_t keys,
         perf_event_add(&p, PERF_TYPE_HARDWARE, PERF_COUNT_HW_CPU_CYCLES);
     perf_event_id id_cache_miss = 
         perf_event_add(&p, PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_MISSES);
-    perf_event_id id_cache_refs =
-        perf_event_add(&p, PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES);
+    //perf_event_id id_cache_refs =
+    //    perf_event_add(&p, PERF_TYPE_HARDWARE, PERF_COUNT_HW_CACHE_REFERENCES);
     // perf_event_id id_branch_miss =
     //     perf_event_add(&p, PERF_TYPE_HARDWARE, PERF_COUNT_HW_BRANCH_MISSES);
     // perf_event_id id_branchs =
@@ -442,22 +435,21 @@ struct bbhash BBHashCompute(double gamma, uintptr_t keys,
     double instrs = perf_event_get(&p, id_instrs);
     double cycles = perf_event_get(&p, id_cycles);
     double misses = perf_event_get(&p, id_cache_miss);
-    double refs = perf_event_get(&p, id_cache_refs);
+    // double refs = perf_event_get(&p, id_cache_refs);
 
     //double branch_miss = perf_event_get(&p, id_branch_miss)
     //    / (double) perf_event_get(&p, id_branchs);
 
 
 
-    printf("C version: %.2f s, cache-miss ratio: %f%%, ins/cycle: %.2f, mem-BW: %.2f MiB/s\n", delta,
-           misses / refs *100,
+    printf("C version: %.2f s, ins/cycle: %.2f, mem-BW: %.2f MiB/s\n", delta,
+           // misses / refs *100,
            instrs/cycles,
            misses * 64 / (1 << 20)
         );
-    printf("Per Key: %.2f cyc., %.3f D$-miss, %.3f D$-acc\n",
+    printf("Per Key: %.2f cyc., %.3f D$-miss\n",
            instrs / key_count,
-           misses / key_count,
-           refs   / key_count);
+           misses / key_count);
     
     return ret;
 }
